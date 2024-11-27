@@ -16,9 +16,15 @@
 
 INSERT INTO film (title, rental_rate, rental_duration, language_id, last_update)
 SELECT 'DEVIL WEARS PRADA', 4.99, 7, l.language_id, current_date
-FROM language l WHERE l.name = 'English' -- not hardcoded English
+FROM language l 
+WHERE UPPER(l.name) = UPPER('English')
+AND NOT EXISTS (
+    SELECT 1 
+    FROM film f
+    WHERE UPPER(f.title) = 'DEVIL WEARS PRADA'
+)
 ON CONFLICT DO NOTHING
-RETURNING *; -- added returning
+RETURNING *;
 
 SELECT * FROM film WHERE title = 'DEVIL WEARS PRADA';
 
@@ -26,19 +32,27 @@ SELECT * FROM film WHERE title = 'DEVIL WEARS PRADA';
 
 INSERT INTO film (title, rental_rate, rental_duration, language_id, last_update)
 SELECT 'A DOG''S PURPOSE', 9.99, 14, l.language_id, current_date
-FROM language l WHERE l.name = 'English'
+FROM language l 
+WHERE UPPER(l.name) = UPPER('English')
+AND NOT EXISTS (
+    SELECT 1 
+    FROM film f
+    WHERE UPPER(f.title) = 'A DOG''S PURPOSE'
+)
 ON CONFLICT DO NOTHING
 RETURNING *;
 
 INSERT INTO film (title, rental_rate, rental_duration, language_id, last_update)
 SELECT 'CRAZY RICH ASIANS', 19.99, 21, l.language_id, current_date
-FROM language l WHERE l.name = 'English'
+FROM language l 
+WHERE UPPER(l.name) = UPPER('English')
+AND NOT EXISTS (
+    SELECT 1 
+    FROM film f
+    WHERE UPPER(f.title) = 'CRAZY RICH ASIANS'
+)
 ON CONFLICT DO NOTHING
 RETURNING *;
-
-
-
-
 
 
 -- 2
@@ -61,11 +75,13 @@ INSERT INTO actor (first_name, last_name, last_update)
 SELECT first_name, last_name, current_date
 FROM actors_to_add
 WHERE NOT EXISTS ( --actor will be added only if no matching actor already exists
-	SELECT * -- here can be anything, it matters if something is returned or not
+	SELECT 1 -- here can be anything, it matters if something is returned or not
 	FROM actor
-	WHERE actor.first_name = actors_to_add.first_name
-	AND actor.last_name = actors_to_add.last_name
-	);
+	WHERE UPPER(actor.first_name) = UPPER(actors_to_add.first_name)
+    AND UPPER(actor.last_name) = UPPER(actors_to_add.last_name)
+	)
+ON CONFLICT DO NOTHING
+RETURNING *;
 
 SELECT first_name, last_name
 FROM actor
@@ -83,63 +99,77 @@ WHERE (first_name, last_name) IN (
 
 -- film_actor table
 
-
 INSERT INTO film_actor (actor_id, film_id)
 SELECT a.actor_id, f.film_id
 FROM actor a
-JOIN film f ON f.title ILIKE 'DEVIL WEARS PRADA'  -- case insensitive film title filter
-WHERE (a.first_name ILIKE 'MERYL' AND a.last_name ILIKE 'Streep')  -- case insensitive actor name filter
-OR (a.first_name ILIKE 'ANNE' AND a.last_name ILIKE 'HathAWAY')
-OR (a.first_name ILIKE 'EMILY' AND a.last_name ILIKE 'Blunt')
-ON CONFLICT (actor_id, film_id) DO NOTHING
-RETURNING *; 
-
-
-INSERT INTO film_actor (actor_id, film_id)
-SELECT a.actor_id, f.film_id
-FROM actor a
-JOIN film f ON f.title ILIKE 'A DOG''S PURPOSE' 
-WHERE (a.first_name ILIKE 'DENNIS' AND a.last_name ILIKE 'QUAID')
-OR (a.first_name ILIKE 'JOSH' AND a.last_name ILIKE 'GAD')
+JOIN film f ON UPPER(f.title) = UPPER('DEVIL WEARS PRADA')
+WHERE (
+	(UPPER(a.first_name) = UPPER('MERYL') AND UPPER(a.last_name) = UPPER('STREEP')) OR
+	(UPPER(a.first_name) = UPPER('ANNE') AND UPPER(a.last_name) = UPPER('HATHAWAY')) OR
+	(UPPER(a.first_name) = UPPER('EMILY') AND UPPER(a.last_name) = UPPER('BLUNT'))
+      )
+AND NOT EXISTS (
+    SELECT 1
+    FROM film_actor fa
+    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
+)
 ON CONFLICT (actor_id, film_id) DO NOTHING
 RETURNING *;
 
+INSERT INTO film_actor (actor_id, film_id)
+SELECT a.actor_id, f.film_id
+FROM actor a
+JOIN film f ON UPPER(f.title) = UPPER('A DOG''S PURPOSE')
+WHERE (
+	(UPPER(a.first_name) = UPPER('DENNIS') AND UPPER(a.last_name) = UPPER('QUAID')) OR
+	(UPPER(a.first_name) = UPPER('JOSH') AND UPPER(a.last_name) = UPPER('GAD'))
+      )
+AND NOT EXISTS (
+    SELECT 1
+    FROM film_actor fa
+    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
+)
+ON CONFLICT (actor_id, film_id) DO NOTHING
+RETURNING *;
 
 INSERT INTO film_actor (actor_id, film_id)
 SELECT a.actor_id, f.film_id
 FROM actor a
-JOIN film f ON f.title ILIKE 'CRAZY RICH ASIANS'
-WHERE (a.first_name ILIKE 'CONSTANCE' AND a.last_name ILIKE 'WU')
-OR (a.first_name ILIKE 'HENRY' AND a.last_name ILIKE 'GOLDING')
+JOIN film f ON UPPER(f.title) = UPPER('CRAZY RICH ASIANS')
+WHERE (
+	(UPPER(a.first_name) = UPPER('CONSTANCE') AND UPPER(a.last_name) = UPPER('WU')) OR
+	(UPPER(a.first_name) = UPPER('HENRY') AND UPPER(a.last_name) = UPPER('GOLDING'))
+      )
+AND NOT EXISTS (
+    SELECT 1
+    FROM film_actor fa
+    WHERE fa.actor_id = a.actor_id AND fa.film_id = f.film_id
+)
 ON CONFLICT (actor_id, film_id) DO NOTHING
 RETURNING *;
 
 SELECT fa.actor_id, fa.film_id
 FROM film_actor fa
 JOIN film f ON fa.film_id = f.film_id
-WHERE f.title ILIKE 'DEVIL WEARS PRADA';
-
-
-
-
+WHERE UPPER(f.title) = UPPER('DEVIL WEARS PRADA');
 
 -- 3
 -- Add your favorite movies to any store's inventory.
 
--- no hardcoding, no duplicates, added returninig
+
 INSERT INTO inventory (film_id, store_id)
 SELECT f.film_id, s.store_id
 FROM film f
 JOIN store s ON s.store_id = 1
-WHERE f.title IN ('DEVIL WEARS PRADA', 'A DOG''S PURPOSE', 'CRAZY RICH ASIANS')
+WHERE UPPER(f.title) IN (UPPER('DEVIL WEARS PRADA'), UPPER('A DOG''S PURPOSE'), UPPER('CRAZY RICH ASIANS'))
 AND NOT EXISTS (
     SELECT *
     FROM inventory i
     WHERE i.film_id = f.film_id
     AND i.store_id = s.store_id
 	)
+ON CONFLICT DO NOTHING
 RETURNING *;
-
 
 -- 4
 -- Alter any existing customer in the database with at least 43 rental and 43 payment records. 
@@ -167,7 +197,7 @@ last_name = 'HAIK',
 email = 'marta.haik@example.com',
 address_id = (SELECT address_id FROM address WHERE address_id = 6),
 last_update = current_date
-	WHERE customer_id = (
+WHERE customer_id = (
 	SELECT c.customer_id
 	FROM customer c
 	LEFT JOIN rental r ON c.customer_id = r.customer_id
@@ -176,6 +206,7 @@ last_update = current_date
 	HAVING COUNT(DISTINCT r.rental_id) >= 43 AND COUNT(DISTINCT p.payment_id) >= 43
 	LIMIT 1
 	)
+ON CONFLICT DO NOTHING
 RETURNING *;
 
 
@@ -193,10 +224,14 @@ FROM customer
 WHERE email = 'marta.haik@example.com';
 
 DELETE FROM rental
-WHERE customer_id = (SELECT customer_id FROM customer WHERE email = 'marta.haik@example.com');
+WHERE customer_id = (
+    SELECT customer_id FROM customer WHERE UPPER(email) = UPPER('marta.haik@example.com')
+);
 
 DELETE FROM payment
-WHERE customer_id = (SELECT customer_id FROM customer WHERE email = 'marta.haik@example.com');
+WHERE customer_id = (
+    SELECT customer_id FROM customer WHERE UPPER(email) = UPPER('marta.haik@example.com')
+);
 
 -- can't because it too connected to customer table
 
@@ -211,20 +246,25 @@ WHERE customer_id = (SELECT customer_id FROM customer WHERE email = 'marta.haik@
 -- (Note: to insert the payment_date into the table payment, you can create a new partition 
 -- (see the scripts to install the training database ) or add records for the first half of 2017)
 
-
 INSERT INTO rental (rental_date, inventory_id, customer_id, staff_id)
 SELECT 
-    current_date,  -- today's date as the rental date
-    i.inventory_id, 
-    c.customer_id,
-    s.staff_id
+	current_date, 
+	i.inventory_id, 
+	c.customer_id, 
+	s.staff_id
 FROM inventory i
-JOIN film f ON f.film_id = i.film_id
-JOIN customer c ON c.first_name = 'MARTA' AND c.last_name = 'HAIK'
-JOIN staff s ON s.staff_id = 2  -- staff who rented the movie (1 or 2)
-WHERE f.title IN ('DEVIL WEARS PRADA', 'A DOG''S PURPOSE', 'CRAZY RICH ASIANS')  -- filter by movie titles
-ON CONFLICT (customer_id, inventory_id, rental_date) DO NOTHING  -- avoid inserting duplicates
-RETURNING *;  
+JOIN film f ON UPPER(f.title) IN (UPPER('DEVIL WEARS PRADA'), UPPER('A DOG''S PURPOSE'), UPPER('CRAZY RICH ASIANS'))
+JOIN customer c ON UPPER(c.first_name) = UPPER('MARTA') AND UPPER(c.last_name) = UPPER('HAIK')
+JOIN staff s ON s.staff_id = 2
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM rental r
+    WHERE r.customer_id = c.customer_id 
+	AND r.inventory_id = i.inventory_id 
+	AND r.rental_date = current_date
+)
+ON CONFLICT DO NOTHING
+RETURNING *;
 
 INSERT INTO payment (customer_id, staff_id, rental_id, amount, payment_date)
 SELECT 
@@ -237,9 +277,15 @@ FROM rental r
 JOIN customer c ON c.customer_id = r.customer_id  
 JOIN staff s ON s.staff_id = r.staff_id  
 JOIN film f ON f.film_id = r.inventory_id  
-WHERE r.rental_date = current_date  -- to quickly find it and change it
-ON CONFLICT DO NOTHING  
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM payment p
+    WHERE p.customer_id = c.customer_id
+	AND p.staff_id = s.staff_id
+	AND p.rental_id = r.rental_id
+	AND p.payment_date = '2017-03-17' -- exact match for payment date
+)
+ON CONFLICT DO NOTHING
 RETURNING *;
-
 
 COMMIT;
