@@ -4,41 +4,28 @@
 --The view should only display categories with at least one sale in the current quarter. 
 --Note: when the next quarter begins, it will be considered as the current quarter.
 
-DROP VIEW IF EXISTS sales_revenue_by_category_qtr; -- for reusability
 
-CREATE VIEW sales_revenue_by_category_qtr AS
-SELECT c.name AS film_category, SUM(p.amount) AS total_sales_revenue
+CREATE OR REPLACE VIEW sales_revenue_by_category_qtr AS
+SELECT c.name AS film_category, 
+SUM(p.amount) AS total_sales_revenue
 FROM payment p
 JOIN rental r ON p.rental_id = r.rental_id
 JOIN inventory i ON r.inventory_id = i.inventory_id
 JOIN film f ON i.film_id = f.film_id
 JOIN film_category fc ON f.film_id = fc.film_id
 JOIN category c ON fc.category_id = c.category_id
-WHERE EXTRACT(QUARTER FROM CURRENT_DATE) = EXTRACT(QUARTER FROM r.rental_date)
-AND EXTRACT(YEAR FROM CURRENT_DATE) = EXTRACT(YEAR FROM r.rental_date)
+WHERE EXTRACT(QUARTER FROM p.payment_date) = EXTRACT(QUARTER FROM CURRENT_DATE)
+AND EXTRACT(YEAR FROM p.payment_date) = EXTRACT(YEAR FROM CURRENT_DATE)
 GROUP BY c.name
-HAVING SUM(p.amount) > 0; -- at least one sale
+HAVING SUM(p.amount) > 0;
+
 
 SELECT * FROM sales_revenue_by_category_qtr;
 
 
--- the table is empty because there are no rentals in 2024
-
-SELECT r.rental_id, r.rental_date, f.title AS film_title, c.name AS category
-FROM rental r
-JOIN inventory i ON r.inventory_id = i.inventory_id
-JOIN film f ON i.film_id = f.film_id
-JOIN film_category fc ON f.film_id = fc.film_id
-JOIN category c ON fc.category_id = c.category_id
-ORDER BY r.rental_date DESC
-LIMIT 10;
-
-
 -- here i made a view with revenue for the first quarter of 2017
 
-DROP VIEW IF EXISTS sales_revenue_by_category_qtr;
-
-CREATE VIEW sales_revenue_by_category_qtr AS
+CREATE OR REPLACE VIEW sales_revenue_by_category_qtr AS
 WITH quarter_dates AS (
     SELECT DATE '2017-01-01' AS start_date,
     DATE '2017-04-01' AS end_date
@@ -58,39 +45,34 @@ ORDER BY total_sales_revenue DESC;
 SELECT * FROM sales_revenue_by_category_qtr;
 
 
-
-
-
-
 -- Task 2. Create a query language functions
 --Create a query language function called 'get_sales_revenue_by_category_qtr' that accepts 
 --one parameter representing the current quarter and year and returns the same result as the 'sales_revenue_by_category_qtr' view.
 
-DROP FUNCTION IF EXISTS get_sales_revenue_by_category_qtr(integer, integer);
-
-CREATE FUNCTION get_sales_revenue_by_category_qtr(current_quarter INT, current_year INT)
+CREATE OR REPLACE FUNCTION get_sales_revenue_by_category_qtr(input_date DATE)
 RETURNS TABLE(category TEXT, total_sales_revenue DECIMAL(7, 2)) AS $$
 BEGIN
 RETURN QUERY
-SELECT c.name AS category, SUM(p.amount) AS total_sales_revenue
+SELECT 
+c.name AS category, 
+SUM(p.amount) AS total_sales_revenue
 FROM payment p
 JOIN rental r ON p.rental_id = r.rental_id
 JOIN inventory i ON r.inventory_id = i.inventory_id
 JOIN film f ON i.film_id = f.film_id
 JOIN film_category fc ON f.film_id = fc.film_id
 JOIN category c ON fc.category_id = c.category_id
-WHERE EXTRACT(QUARTER FROM r.rental_date) = current_quarter
-AND EXTRACT(YEAR FROM r.rental_date) = current_year
+WHERE EXTRACT(QUARTER FROM p.payment_date) = EXTRACT(QUARTER FROM input_date)
+AND EXTRACT(YEAR FROM p.payment_date) = EXTRACT(YEAR FROM input_date)
 GROUP BY c.name
 HAVING SUM(p.amount) > 0
 ORDER BY total_sales_revenue DESC;
 END;
 $$ LANGUAGE plpgsql;
 
+
 SELECT * 
-FROM get_sales_revenue_by_category_qtr(1, 2017);
-
-
+FROM get_sales_revenue_by_category_qtr('2017-01-01');
 
 
 
@@ -98,10 +80,7 @@ FROM get_sales_revenue_by_category_qtr(1, 2017);
 -- Task 3. Create procedure language functions
 --Create a function that takes a country as an input parameter and returns the most popular film in that specific country. 
 
-
-DROP FUNCTION IF EXISTS most_popular_films_by_countries(TEXT[]);
-
-CREATE FUNCTION most_popular_films_by_countries(countries TEXT[])
+CREATE OR REPLACE FUNCTION most_popular_films_by_countries(countries TEXT[])
 RETURNS TABLE(
 	country TEXT,
 	film_title TEXT,
@@ -130,7 +109,7 @@ JOIN customer c ON r.customer_id = c.customer_id
 JOIN address ad ON c.address_id = ad.address_id
 JOIN city ci ON ad.city_id = ci.city_id
 JOIN country co ON ci.country_id = co.country_id
-WHERE co.country = ANY(countries)
+WHERE UPPER(co.country) = ANY(SELECT UPPER(input_country) FROM unnest(countries) AS input_country)
 GROUP BY co.country, f.title, f.rating, l.name, f.length, f.release_year
 ORDER BY co.country, rental_count DESC; -- my HAVING COUNT MAX was not working so i put the condition here
 END;
@@ -175,60 +154,52 @@ FROM most_popular_films_by_countries(ARRAY['Afghanistan', 'Brazil', 'United Stat
 -- The function should produce the result set in the following format 
 -- (note: the 'row_num' field is an automatically generated counter field, starting from 1 and incrementing for each entry, 
 -- 	e.g., 1, 2, ..., 100, 101, ...)
-	
-DROP FUNCTION IF EXISTS films_in_stock_by_title(TEXT[]);
 
-CREATE FUNCTION films_in_stock_by_title(partial_title TEXT[])
+CREATE OR REPLACE FUNCTION films_in_stock_by_title(partial_title TEXT)
 RETURNS TABLE (
-row_num BIGINT,            
-film_title TEXT,             
-language TEXT,               
-customer_name TEXT,         
-returned_date DATE          
+    row_num BIGINT,
+    film_title TEXT,
+    language TEXT,
+    customer_name TEXT,
+    returned_date DATE
 ) AS $$
+DECLARE
+rec RECORD; -- record for looping
+row_counter BIGINT := 0; -- counter for row numbers
 BEGIN
--- distinct returned films (if they are returned, they must be in stock)
-RETURN QUERY
-WITH distinct_rentals AS 
-	(
-	SELECT DISTINCT ON (f.title, c.customer_id, r.return_date)
-	f.title AS film_title,
-	l.name::TEXT AS language,
-	c.first_name || ' ' || c.last_name AS customer_name,
-	r.return_date::DATE AS returned_date
-	FROM film f
-	JOIN language l ON f.language_id = l.language_id
-	JOIN inventory i ON f.film_id = i.film_id
-	JOIN rental r ON i.inventory_id = r.inventory_id
-	JOIN customer c ON r.customer_id = c.customer_id
-	WHERE f.title ILIKE '%' || partial_title || '%'
-	AND r.return_date IS NOT NULL  -- only films that have been returned
-	ORDER BY f.title, c.customer_id, r.return_date DESC  -- most recent return date per film-customer pair
-	)
+FOR rec IN 
 SELECT 
-ROW_NUMBER() OVER (ORDER BY distinct_rentals.film_title, distinct_rentals.returned_date) AS row_num,  -- row number generated
-distinct_rentals.film_title,
-distinct_rentals.language,
-distinct_rentals.customer_name,
-distinct_rentals.returned_date
-FROM distinct_rentals
-ORDER BY distinct_rentals.film_title, distinct_rentals.returned_date;
+f.title AS film_title,
+l.name::TEXT AS language,
+c.first_name || ' ' || c.last_name AS customer_name,
+MAX(r.return_date)::DATE AS returned_date -- Ensure the latest return date
+FROM film f
+JOIN language l ON f.language_id = l.language_id
+JOIN inventory i ON f.film_id = i.film_id
+JOIN rental r ON i.inventory_id = r.inventory_id
+JOIN customer c ON r.customer_id = c.customer_id
+WHERE f.title ILIKE '%' || partial_title || '%'
+AND r.return_date IS NOT NULL -- only films that have been returned
+GROUP BY f.title, l.name, c.first_name, c.last_name
+ORDER BY f.title, MAX(r.return_date) DESC -- Ensure correct ordering
+LOOP
+row_counter := row_counter + 1; -- increment the row number counter
+row_num := row_counter; -- assigns values to the output columns
+film_title := rec.film_title;
+language := rec.language;
+customer_name := rec.customer_name;
+returned_date := rec.returned_date;
+RETURN NEXT;
+END LOOP;
 
--- if no rows were returned, raise an exception
-IF NOT FOUND THEN
-RAISE EXCEPTION 'No movies with title containing "%"', partial_title;
+IF row_counter = 0 THEN
+RAISE EXCEPTION 'No movies with titles containing "%s" found.', partial_title;
 END IF;
 END;
 $$ LANGUAGE plpgsql;
 
 
-select * from films_in_stock_by_title('%love%');
-
---SELECT * FROM films_in_stock_by_title('%jajo%');
-
-
-
-
+SELECT * FROM films_in_stock_by_title('%LOVE%');
 
 
 
@@ -239,8 +210,6 @@ select * from films_in_stock_by_title('%love%');
 -- The release year and language are optional and by default should be current year and Klingon respectively. 
 -- The function should also verify that the language exists in the 'language' table. 
 -- Then, ensure that no such function has been created before; if so, replace it.
-
-DROP FUNCTION IF EXISTS new_movie(TEXT, INTEGER, TEXT);
 
 CREATE OR REPLACE FUNCTION new_movie(
 movie_title TEXT,
@@ -267,6 +236,7 @@ END IF;
 
 INSERT INTO film (title, rental_rate, rental_duration, replacement_cost, release_year, language_id)
 VALUES (movie_title, 4.99, 3, 19.99, release_year, language_id)
+ON CONFLICT DO NOTHING
 RETURNING film_id INTO new_film_id;
 
 IF NOT FOUND THEN
