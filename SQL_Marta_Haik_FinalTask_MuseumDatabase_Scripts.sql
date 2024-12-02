@@ -142,6 +142,63 @@ ON CONFLICT (title) DO NOTHING
 RETURNING *;
 
 
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 1, 1 -- Christian Dior: Designer of Dreams - Lady Dior Bag
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 1 AND artifact_id = 1
+);
+
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 1, 2 -- Christian Dior: Designer of Dreams - Bar Suit Ensemble
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 1 AND artifact_id = 2
+);
+
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 2, 2 -- Dior and Japan: The Art of Couture - Bar Suit Ensemble
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 2 AND artifact_id = 2
+);
+
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 3, 5 -- Revolutionary Dior Silhouettes - New Look Dress
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 3 AND artifact_id = 5
+);
+
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 4, 1 -- Dior Accessories: Timeless Elegance - Lady Dior Bag
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 4 AND artifact_id = 1
+);
+
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 4, 4 -- Dior Accessories: Timeless Elegance - Dior Oblique Saddle Bag
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 4 AND artifact_id = 4
+);
+
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 5, 3 -- Evolution of Dior Fragrances - J’Adore Perfume Bottle
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 5 AND artifact_id = 3
+);
+
+INSERT INTO museum_schema.Exhibition_Artifacts (exhibition_id, artifact_id)
+SELECT 6, 6 -- Dior and Modern Menswear - Dior Homme Suit
+WHERE NOT EXISTS (
+    SELECT 1 FROM museum_schema.Exhibition_Artifacts 
+    WHERE exhibition_id = 6 AND artifact_id = 6
+);
+
+
 INSERT INTO museum_schema.Employees (name, surname, job)
 SELECT name, surname, job
 FROM (
@@ -216,7 +273,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 
-SELECT * FROM employees WHERE surname = 'Ford';
+SELECT * FROM museum_schema.employees WHERE surname = 'Ford';
 
 SELECT museum_schema.update_table_data(
     'Employees',  -- table name
@@ -227,7 +284,7 @@ SELECT museum_schema.update_table_data(
 );
 
 
-SELECT * FROM employees WHERE surname = 'Ford';
+SELECT * FROM museum_schema.employees WHERE surname = 'Ford';
 
 
 -- Create a function that adds a new transaction to your transaction table. 
@@ -256,6 +313,7 @@ $$ LANGUAGE plpgsql;
 
 SELECT *
 FROM museum_schema.add_transaction(1, 20.00, 'Normal', '2024-12-01');
+
 -- When I try to use query for ID above, I have quite some problems with table column names being in conflict with the function,
 -- so I separatly searched for ID:
 
@@ -263,10 +321,13 @@ FROM museum_schema.add_transaction(1, 20.00, 'Normal', '2024-12-01');
 -- FROM museum_schema.Exhibition 
 -- WHERE title = 'Christian Dior: Designer of Dreams';
 
+
+
 SELECT * FROM museum_schema.Tickets WHERE purchase_date = '2024-12-01';
 
--- Create a view that presents analytics for the most recently added quarter in your database. 
 
+
+-- Create a view that presents analytics for the most recently added quarter in your database. 
 
 CREATE VIEW museum_schema.recently_added_quarter_analytics AS
 SELECT 
@@ -280,7 +341,6 @@ WHERE e.start_date >= (CURRENT_DATE - INTERVAL '3 months')
 GROUP BY quarter, year;
 
 SELECT * FROM recently_added_quarter_analytics;
-	
 
 -- Create a read-only role for the manager (SELECT, log in)
 
@@ -291,4 +351,4 @@ GRANT SELECT ON ALL TABLES IN SCHEMA museum_schema TO manager;
 
 SET ROLE manager;
 
-SELECT * FROM artifacts;
+SELECT * FROM museum_schema.artifacts;
