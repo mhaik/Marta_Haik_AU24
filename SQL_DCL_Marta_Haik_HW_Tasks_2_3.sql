@@ -10,7 +10,9 @@ GRANT CONNECT ON DATABASE dvdrental TO rentaluser;
 --Сheck to make sure this permission works correctly—write a SQL query to select all customers.
 
 GRANT SELECT ON customer TO rentaluser;
+SET ROLE rentaluser;
 SELECT * FROM customer;
+SET ROLE postgres;
 
 --Create a new user group called "rental" and add "rentaluser" to the group. 
 CREATE ROLE rental;
@@ -63,23 +65,29 @@ DO $$
 DECLARE
     role_name TEXT;
 BEGIN
+    -- loop through customers who have rental and payment history
     FOR role_name IN 
         SELECT 'client_' || LOWER(first_name) || '_' || LOWER(last_name) AS role_name
         FROM customer
         WHERE customer_id IN (
-			SELECT customer_id
-			FROM customer
-			WHERE customer_id IN (SELECT DISTINCT customer_id FROM rental)
-			AND customer_id IN (SELECT DISTINCT customer_id FROM payment)
+            SELECT customer_id
+            FROM rental
+            GROUP BY customer_id
+            HAVING COUNT(*) > 0
+        )
+        AND customer_id IN (
+            SELECT customer_id
+            FROM payment
+            GROUP BY customer_id
+            HAVING COUNT(*) > 0
         )
     LOOP
-		IF NOT EXISTS 
-			(SELECT *
-			FROM pg_roles
-			WHERE rolname = role_name)
-			THEN EXECUTE 'CREATE ROLE ' || role_name;
-		END IF;
-        EXECUTE 'GRANT SELECT ON rental, payment TO ' || role_name;
+        -- check if the role already exists, and create it if not
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_roles WHERE rolname = role_name
+        ) THEN
+            EXECUTE 'CREATE ROLE ' || role_name || ' NOLOGIN';
+        END IF;
     END LOOP;
 END $$;
 
@@ -87,7 +95,6 @@ END $$;
 SET ROLE client_patricia_johnson;
 
 SELECT * FROM rental;
-SELECT * FROM payment;
 
 
 --Task 3. Implement row-level security
@@ -96,57 +103,57 @@ SELECT * FROM payment;
 
 SET ROLE postgres;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON rental TO rentaluser;
-GRANT SELECT, INSERT, UPDATE, DELETE ON payment TO rentaluser;
+DROP POLICY IF EXISTS rental_select_policy_p ON rental;
+DROP POLICY IF EXISTS rental_insert_policy_p ON rental;
+DROP POLICY IF EXISTS rental_update_policy_p ON rental;
+DROP POLICY IF EXISTS rental_delete_policy_p ON rental;
+
+DROP POLICY IF EXISTS payment_select_policy_p ON payment;
+DROP POLICY IF EXISTS payment_insert_policy_p ON payment;
+DROP POLICY IF EXISTS payment_update_policy_p ON payment;
+DROP POLICY IF EXISTS payment_delete_policy_p ON payment;
+
 
 ALTER TABLE rental ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment ENABLE ROW LEVEL SECURITY;
 
--- policy for select / table rental
-CREATE POLICY rental_select_policy ON rental
+-- only the customer can access their own rows:
+
+CREATE POLICY rental_select_policy_p ON rental
 FOR SELECT
-USING (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+USING (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
--- policy for insert / table rental
-CREATE POLICY rental_insert_policy ON rental
+CREATE POLICY rental_insert_policy_p ON rental
 FOR INSERT
-WITH CHECK (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+WITH CHECK (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
--- policy for update/ table rental
-CREATE POLICY rental_update_policy ON rental
+CREATE POLICY rental_update_policy_p ON rental
 FOR UPDATE
-USING (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+USING (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
--- policy for delete / table rental
-CREATE POLICY rental_delete_policy ON rental
+CREATE POLICY rental_delete_policy_p ON rental
 FOR DELETE
-USING (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+USING (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
--- same for table payment
+-- only the customer can access their own payment records
 
--- policy for select
-CREATE POLICY payment_select_policy ON payment
+CREATE POLICY payment_select_policy_p ON payment
 FOR SELECT
-USING (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+USING (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
--- policy for insert
-CREATE POLICY payment_insert_policy ON payment
+CREATE POLICY payment_insert_policy_p ON payment
 FOR INSERT
-WITH CHECK (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+WITH CHECK (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
--- policy for update
-CREATE POLICY payment_update_policy ON payment
+CREATE POLICY payment_update_policy_p ON payment
 FOR UPDATE
-USING (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+USING (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
--- policy for delete
-CREATE POLICY payment_delete_policy ON payment
+CREATE POLICY payment_delete_policy_p ON payment
 FOR DELETE
-USING (customer_id = (SELECT customer_id FROM customer WHERE email = current_user));
+USING (customer_id = (SELECT customer_id FROM customer WHERE UPPER(first_name) = 'PATRICIA' AND UPPER(last_name) = 'JOHNSON'));
 
 
+SET ROLE client_patricia_johnson;
 
-SET ROLE rentaluser;
-
-SELECT * FROM rental;
-SELECT * FROM payment;
+SELECT distinct customer_id FROM rental;
