@@ -59,8 +59,6 @@ ORDER BY ch.channel_desc, cs.customer_sales DESC;
 
 
 
-
-
 -- Task 2
 -- Create a query to retrieve data for a report that displays the total sales for all products in the 
 -- Photo category in the Asian region for the year 2000. Calculate the overall report total and name it 'YEAR_SUM'
@@ -71,13 +69,12 @@ ORDER BY ch.channel_desc, cs.customer_sales DESC;
 
 CREATE EXTENSION IF NOT EXISTS tablefunc;
 
-
 SELECT 
     product_name,
-    q1, -- each quarter's sales
-    q2,
-    q3,
-    q4,
+    COALESCE(q1, 0) AS q1, -- each quarter's sales
+    COALESCE(q2, 0) AS q2,
+    COALESCE(q3, 0) AS q3,
+    COALESCE(q4, 0) AS q4,
     (COALESCE(q1, 0) + COALESCE(q2, 0) + COALESCE(q3, 0) + COALESCE(q4, 0)) AS year_sum -- yearly total
 FROM crosstab(
     $$
@@ -110,8 +107,6 @@ ORDER BY year_sum DESC; -- sort by yearly total in descending order
 
 
 
-
-
 -- Task 3
 
 -- Create a query to generate a sales report for customers ranked in the top 300 based on total sales 
@@ -124,41 +119,40 @@ ORDER BY year_sum DESC; -- sort by yearly total in descending order
 -- Format the column so that total sales are displayed with two decimal places
 
 
-WITH customer_sales AS (
+WITH ranked_customers AS (
     SELECT 
         s.channel_id,
-        s.cust_id, -- customer ID
-        t.calendar_year, -- year of the sale
-        SUM(s.amount_sold) AS total_sales  -- Sum of sales for each customer in a specific year and specific channel
+        s.cust_id,
+        t.calendar_year,
+        SUM(s.amount_sold) AS total_sales,
+        ROW_NUMBER() OVER (PARTITION BY s.channel_id, t.calendar_year ORDER BY SUM(s.amount_sold) DESC
+        ) AS rank -- rank customers based on total sales per channel and year
     FROM sh.sales s
-    JOIN sh.times t ON s.time_id = t.time_id  -- join with times table to get the sales year
-    JOIN sh.customers cu ON s.cust_id = cu.cust_id  -- join with customers table to filter by customers later
-    WHERE t.calendar_year IN (1998, 1999, 2001)  -- years 1998, 1999, and 2001
+    JOIN sh.times t ON s.time_id = t.time_id -- matching sales data to the corresponding time data
+    WHERE t.calendar_year IN (1998, 1999, 2001) -- specific years
     GROUP BY s.channel_id, s.cust_id, t.calendar_year
-),
 	
-ranked_customers AS (
-    SELECT 
-        cs.channel_id,
-        cs.cust_id,
-        cs.total_sales,  -- total sales amount for the customer
-        ROW_NUMBER() OVER (PARTITION BY cs.channel_id ORDER BY cs.total_sales DESC) AS rank  -- rank customers with each channel
-    FROM customer_sales cs  -- use the result of the customer_sales cte for ranking
+top_customers AS (
+    SELECT rc.channel_id, rc.cust_id -- sales channel, customer id
+    FROM ranked_customers rc
+    WHERE rc.rank <= 300 -- only customers ranked in the top 300 for each channel and year
+    GROUP BY rc.channel_id, rc.cust_id
+    HAVING COUNT(DISTINCT rc.calendar_year) = 3 -- must be for every year
 )
 
 SELECT
     c.channel_desc, -- channel description
     cu.cust_last_name,
     cu.cust_first_name,
-    ROUND(cs.total_sales, 2) AS amount_sold  -- total sales (two decimal places)
-FROM ranked_customers cs
-JOIN sh.channels c ON cs.channel_id = c.channel_id  -- join with the channels table to get the channel description
-JOIN sh.customers cu ON cs.cust_id = cu.cust_id   -- join with the customers table to get customer details
-WHERE cs.rank <= 300  -- top 300 customers per channel
-ORDER BY c.channel_desc, cs.total_sales  DESC;  -- order by channel description in descending order
-
-
-
+    ROUND(SUM(s.amount_sold), 2) AS amount_sold -- total sales (two decimal places)
+FROM top_customers tc
+JOIN sh.sales s ON tc.channel_id = s.channel_id AND tc.cust_id = s.cust_id
+JOIN sh.times t ON s.time_id = t.time_id
+JOIN sh.channels c ON tc.channel_id = c.channel_id -- join with channels for channel description
+JOIN sh.customers cu ON tc.cust_id = cu.cust_id -- join with customers for customer details
+WHERE t.calendar_year IN (1998, 1999, 2001) -- sales from the specified years
+GROUP BY c.channel_desc, cu.cust_last_name, cu.cust_first_name
+ORDER BY c.channel_desc, amount_sold DESC; -- order by channel description descending (and total sales)
 
 
 
@@ -169,39 +163,19 @@ ORDER BY c.channel_desc, cs.total_sales  DESC;  -- order by channel description 
 -- Display the result by months and by product category in alphabetical order.
 
 
--- SELECT 
--- t.calendar_month_name AS month, 
--- p.prod_category AS product_category,
--- SUM(CASE WHEN co.country_region = 'Europe' THEN s.amount_sold ELSE 0 END) 
--- OVER (PARTITION BY t.calendar_month_name ORDER BY p.prod_category) AS europe_cumulative_sales,
--- SUM(CASE WHEN co.country_region = 'Americas' THEN s.amount_sold ELSE 0 END)
--- OVER (PARTITION BY t.calendar_month_name ORDER BY p.prod_category) AS americas_cumulative_sales
--- FROM sh.sales s -- join with the times table to filter for specific months
--- JOIN sh.times t ON s.time_id = t.time_id -- join with the products table to get the product categories
--- JOIN sh.products p ON s.prod_id = p.prod_id -- join with the customers and countries table to filter for Europe and Americas regions
--- JOIN sh.customers c ON s.cust_id = c.cust_id 
--- JOIN sh.countries co ON c.country_id = co.country_id
--- WHERE t.calendar_year = 2000 AND t.calendar_month_number IN (1, 2, 3) -- January, February, March 2000
--- AND co.country_region IN ('Europe', 'Americas') -- Europe and America region
--- GROUP BY t.calendar_month_name, p.prod_category, co.country_region, s.amount_sold -- all needed columns
--- ORDER BY t.calendar_month_name, p.prod_category;
-
-
--- The code above makes a lot of duplicates, it's faster and easier to write query without it, but I understand
--- the task is made so we could specifically practice window functions
-
-
-SELECT 
-    t.calendar_month_name AS month, 
+SELECT DISTINCT
+    t.calendar_month_name AS month,
     p.prod_category AS product_category,
-    SUM(CASE WHEN co.country_region = 'Europe' THEN s.amount_sold ELSE 0 END) AS europe_sales, -- European sales
-    SUM(CASE WHEN co.country_region = 'Americas' THEN s.amount_sold ELSE 0 END) AS americas_sales -- American sales
-FROM sh.sales s -- join with the times table to filter for specific months
-JOIN sh.times t ON s.time_id = t.time_id -- join with the products table to get the product categories
-JOIN sh.products p ON s.prod_id = p.prod_id -- join with the customers and countries table to filter for Europe and Americas regions
-JOIN sh.customers c ON s.cust_id = c.cust_id 
-JOIN sh.countries co ON c.country_id = co.country_id
-WHERE t.calendar_year = 2000 AND t.calendar_month_number IN (1, 2, 3) -- January, February, March 2000
+    SUM(CASE WHEN co.country_region = 'Europe' THEN s.amount_sold ELSE 0 END) 
+    OVER (PARTITION BY t.calendar_month_name, p.prod_category) AS europe_sales, -- European sales
+    SUM(CASE WHEN co.country_region = 'Americas' THEN s.amount_sold ELSE 0 END) 
+    OVER (PARTITION BY t.calendar_month_name, p.prod_category) as americas_sales -- American sales
+FROM sh.sales s
+JOIN sh.times t ON s.time_id = t.time_id -- join to filter by time (month, year)
+JOIN sh.products p ON s.prod_id = p.prod_id -- join to get product categories
+JOIN sh.customers c ON s.cust_id = c.cust_id -- join to customers table
+JOIN sh.countries co ON c.country_id = co.country_id -- join to countries table for region info
+WHERE t.calendar_year = 2000 
+AND t.calendar_month_number IN (1, 2, 3) -- January, February, March 2000
 AND co.country_region IN ('Europe', 'Americas') -- Europe and America region
-GROUP BY t.calendar_month_name, p.prod_category
 ORDER BY t.calendar_month_name, p.prod_category;
