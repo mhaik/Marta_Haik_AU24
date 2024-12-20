@@ -20,30 +20,45 @@ WITH sales_data AS (
         c.channel_desc,
         SUM(s.amount_sold) AS amount_sold, -- total sales for specific channel/region/year
         SUM(SUM(s.amount_sold)) OVER (PARTITION BY r.country_region, t.calendar_year) AS total_sales_per_year
-        -- sum across all channels above
+        -- total sales across all channels for a region/year
     FROM sh.sales s
     JOIN sh.times t ON s.time_id = t.time_id
     JOIN sh.channels c ON s.channel_id = c.channel_id
     JOIN sh.customers cu ON s.cust_id = cu.cust_id
     JOIN sh.countries r ON cu.country_id = r.country_id
-    WHERE t.calendar_year BETWEEN 1999 AND 2001 -- 1999, 2000, 2001
+    WHERE t.calendar_year BETWEEN 1998 AND 2001 -- include 1998 to calculate LAG for 1999
     AND r.country_region IN ('Americas', 'Asia', 'Europe') -- specific regions
     GROUP BY r.country_region, t.calendar_year, c.channel_desc -- for aggregation
+),
+	
+query_data AS (
+    SELECT
+        country_region, -- region
+        calendar_year, -- year
+        channel_desc, -- channel
+        amount_sold, -- total sales for this channel/region/year
+        ROUND((amount_sold / total_sales_per_year) * 100, 2) AS "% BY CHANNELS",
+        -- percentage of total sales by channel
+        LAG(ROUND((amount_sold / total_sales_per_year) * 100, 2)) 
+        OVER (PARTITION BY country_region, channel_desc ORDER BY calendar_year) AS "% PREVIOUS PERIOD",
+        -- LAG to get the percentage from the previous year
+        ROUND(ROUND((amount_sold / total_sales_per_year) * 100, 2) - 
+		LAG(ROUND((amount_sold / total_sales_per_year) * 100, 2)) 
+		OVER (PARTITION BY country_region, channel_desc ORDER BY calendar_year), 2) AS "% DIFF"
+        -- difference between this year percentage and the previous year percentage
+    FROM sales_data
 )
+	
 SELECT
-    country_region, -- region
-    calendar_year, -- year
-    channel_desc, -- channel
-    amount_sold, -- total sales for this channel/region/year
-    ROUND((amount_sold / total_sales_per_year) * 100, 2) AS "% BY CHANNELS",
-    -- percentage of total sales by channel
-    LAG(ROUND((amount_sold / total_sales_per_year) * 100, 2)) -- LAG to get the percentage from the previous year
-    OVER (PARTITION BY country_region, channel_desc ORDER BY calendar_year) AS "% PREVIOUS PERIOD",
-    ROUND(ROUND((amount_sold / total_sales_per_year) * 100, 2) - 
-	LAG(ROUND((amount_sold / total_sales_per_year) * 100, 2)) 
-	OVER (PARTITION BY country_region, channel_desc ORDER BY calendar_year), 2) AS "% DIFF"
-    -- difference between this year percentage and the previous year percentage
-FROM sales_data
+    country_region,
+    calendar_year,
+    channel_desc,
+    amount_sold,
+    "% BY CHANNELS",
+    COALESCE("% PREVIOUS PERIOD", 0) AS "% PREVIOUS PERIOD",  -- replace NULL with 0
+    COALESCE("% DIFF", 0) AS "% DIFF" -- replace NULL with 0
+FROM query_data
+WHERE calendar_year BETWEEN 1999 AND 2001 -- filter out 1998 now
 ORDER BY country_region, calendar_year, channel_desc;
 
 
@@ -71,11 +86,17 @@ SELECT
         ORDER BY t.time_id -- by the day
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW -- all previous rows (till 6th) + the current row
     ) AS cum_sum,   
-    ROUND(AVG(SUM(s.amount_sold)) OVER ( -- 3 day moving average for the sales.
-        PARTITION BY t.calendar_week_number -- for each week
-        ORDER BY t.time_id
-        ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING -- 2 rows before and 2 rows after the current row
-    ), 2) AS centered_3_day_avg
+    ROUND((CASE 
+		WHEN UPPER(t.day_name) = UPPER('Monday') THEN 
+			AVG(SUM(s.amount_sold)) OVER (ORDER BY t.time_id RANGE BETWEEN 
+			INTERVAL '2' DAY PRECEDING AND INTERVAL '1' DAY FOLLOWING) -- Weekend, Monday, Tuesday
+		WHEN UPPER(t.day_name) = UPPER('Friday') THEN 
+			AVG(SUM(s.amount_sold)) OVER (ORDER BY t.time_id RANGE BETWEEN 
+			INTERVAL '1' DAY PRECEDING AND INTERVAL '2' DAY FOLLOWING) -- Thursday, Friday, Weekend
+		ELSE 
+			AVG(SUM(s.amount_sold)) OVER (ORDER BY t.time_id RANGE BETWEEN 
+			INTERVAL '1' DAY PRECEDING AND INTERVAL '1' DAY FOLLOWING) -- others
+    END), 2) AS centered_3_day_avg
 FROM sh.sales s
 JOIN sh.times t ON s.time_id = t.time_id
 WHERE t.calendar_year = 1999 AND t.calendar_week_number IN (49, 50, 51) -- weeks 49, 50, 51
