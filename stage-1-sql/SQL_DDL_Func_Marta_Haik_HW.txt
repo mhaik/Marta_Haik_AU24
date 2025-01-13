@@ -1,0 +1,159 @@
+What operations do the following functions perform: film_in_stock, film_not_in_stock, inventory_in_stock, get_customer_balance, inventory_held_by_customer, rewards_report, last_day? You can find these functions in dvd_rental database.
+
+
+film_in_stock - checks if a film is available in stock (checks also by the part of the title)
+
+film_not_in_stock - checks if a film is currently out of stock, returns number of copies missing
+
+inventory_in_stock - checks if inventory_id is in stock (true or false)
+
+get_customer_balance - checks the customer's payment balance
+
+inventory_held_by_customer - checks how many rentals a customer has
+
+rewards_report - checks what customers satisfy some condition (for a bonus)
+
+last_day - checks what is the last date of a month
+
+
+
+
+Why does ‘rewards_report’ function return 0 rows? Correct and recreate the function, so that it's able to return rows properly.
+
+The range of the dates is the problem, there were no rentals after 2017, which leads to empty records
+
+
+CREATE OR REPLACE FUNCTION public.rewards_report(min_monthly_purchases integer, min_dollar_amount_purchased numeric)
+RETURNS SETOF customer
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+    last_period_start DATE;
+    last_period_end DATE;
+    record RECORD;
+BEGIN
+    IF min_monthly_purchases <= 0 THEN
+    RAISE EXCEPTION 'Minimum amount rented must be > 0';
+    END IF;
+    IF min_dollar_amount_purchased <= 0.00 THEN
+    RAISE EXCEPTION 'Minimum amount spent must be > $0.00';
+    END IF;
+
+    last_period_start := CURRENT_DATE - INTERVAL '90 months';  -- there were 3 months
+    last_period_end := CURRENT_DATE;
+
+    FOR record IN
+        SELECT c.*
+        FROM customer c
+        JOIN payment p ON c.customer_id = p.customer_id
+        WHERE p.payment_date BETWEEN last_period_start AND last_period_end
+        GROUP BY c.customer_id
+        HAVING COUNT(p.customer_id) >= min_monthly_purchases
+        AND SUM(p.amount) >= min_dollar_amount_purchased
+    LOOP
+    RETURN NEXT record;
+    END LOOP;
+    RETURN;
+END;
+$function$
+;
+
+
+
+Is there any function that can potentially be removed from the dvd_rental codebase? If so, which one and why?
+
+Probably film_not_in_stock, which is the opposite of film_in_stock. By adding a condition, we have the other function.
+
+
+
+* The ‘get_customer_balance’ function describes the business requirements for calculating the client balance. Unfortunately, not all of them are implemented in this function. Try to change function using the requirements from the comments.
+
+CREATE OR REPLACE FUNCTION public.get_customer_balance(p_customer_id integer, p_effective_date timestamp with time zone)
+RETURNS numeric
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+    v_rentfees DECIMAL(5,2); --#FEES PAID TO RENT THE VIDEOS INITIALLY
+    v_overfees INTEGER;      --#LATE FEES FOR PRIOR RENTALS
+    v_payments DECIMAL(5,2); --#SUM OF PAYMENTS MADE PREVIOUSLY
+    v_replacement_fees DECIMAL(10,2);
+BEGIN
+    -- 1) RENTAL FEES FOR ALL PREVIOUS RENTALS
+    SELECT COALESCE(SUM(film.rental_rate), 0) 
+    INTO v_rentfees
+    FROM film
+    JOIN inventory ON film.film_id = inventory.film_id
+    JOIN rental ON inventory.inventory_id = rental.inventory_id
+    WHERE rental.customer_id = p_customer_id
+	AND rental.rental_date <= p_effective_date
+	AND rental.return_date IS NOT NULL;
+
+    -- 2) ONE DOLLAR FOR EVERY DAY THE PREVIOUS RENTALS ARE OVERDUE
+    SELECT COALESCE(SUM(
+	CASE 
+		WHEN rental.return_date > (rental.rental_date + film.rental_duration * INTERVAL '1 day') THEN
+		EXTRACT(epoch FROM (rental.return_date - rental.rental_date - film.rental_duration * INTERVAL '1 day')) / 86400  -- Overdue days
+		ELSE 0
+	END), 0) 
+    INTO v_overfees
+    FROM rental
+    JOIN inventory ON rental.inventory_id = inventory.inventory_id
+    JOIN film ON inventory.film_id = film.film_id
+    WHERE rental.customer_id = p_customer_id
+    AND rental.rental_date <= p_effective_date
+    AND rental.return_date IS NOT NULL;
+    -- 3) IF A FILM IS MORE THAN RENTAL_DURATION * 2 OVERDUE, CHARGE THE REPLACEMENT_COST
+    SELECT COALESCE(SUM(
+	CASE 
+		WHEN rental.return_date - rental.rental_date > film.rental_duration * 2 * INTERVAL '1 day' THEN film.replacement_cost
+		ELSE 0
+	END), 0) 
+    INTO v_replacement_fees
+    FROM rental
+    JOIN inventory ON rental.inventory_id = inventory.inventory_id
+    JOIN film ON inventory.film_id = film.film_id
+	WHERE rental.customer_id = p_customer_id
+	AND rental.rental_date <= p_effective_date
+	AND rental.return_date IS NOT NULL;
+
+    -- 4) SUBTRACT ALL PAYMENTS MADE BEFORE THE DATE SPECIFIED
+    SELECT COALESCE(SUM(payment.amount), 0) 
+    INTO v_payments
+    FROM payment
+    WHERE payment.customer_id = p_customer_id
+    AND payment.payment_date <= p_effective_date;
+
+    RETURN v_rentfees + v_overfees + v_replacement_fees - v_payments;
+END
+$function$
+;
+
+
+
+
+* How do ‘group_concat’ and ‘_group_concat’ functions work? (database creation script might help) Where are they used?
+
+group_concat groups data by a specific field and concatenate the values into a single string for each group
+
+_group_concat checks for null values before concatenating the texts
+
+They are commonly used to create aggregated strings from multiple rows of data, like a list of film titles in a specific genre
+
+
+
+
+* What does ‘last_updated’ function do? Where is it used?
+
+The last_updated function is used to automatically update a "last updated" timestamp every time something in a table is changed. 
+
+It’s typically used with triggers in a database. The trigger would fire whenever a record (like a customer’s info) is updated, and it would run the last_updated function to update the "last updated" column with the current time.
+
+
+
+
+* What is tmpSQL variable for in ‘rewards_report’ function? Can this function be recreated without EXECUTE statement and dynamic SQL? Why?
+
+The tmpSQL variable is used to store a SQL query that is built dynamically. This means the query is not hardcoded but is created based on the input values. Once the query is built, the EXECUTE statement runs it.
+
+Can this function be rewritten without using dynamic SQL?
+Yes, the function could be rewritten without using dynamic SQL, but it would need to be adjusted. EXECUTE allows to handle more complex conditions without having to rewrite the entire query each time. Without EXECUTE, parts of query would have to be hardcoded or use additional logic that could make the code much more complicated.
