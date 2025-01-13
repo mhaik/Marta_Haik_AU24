@@ -1,5 +1,0 @@
-Task 1. Figure out what security precautions are already used in your 'dvd_rental' database. Prepare description
-
-The dvd_rental database uses roles starting with 'pg_', like pg_database_owner, pg_read_all_data, pg_write_all_data, till pg_create_subscription and ending with the 'postgres' role. The 'postgres' role has full control over the database ("INSERT", "SELECT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", ... privilages on all tables), other roles require permissions to interact with the database. It is a safety precaution, to have only one role with such grand power.
-
-

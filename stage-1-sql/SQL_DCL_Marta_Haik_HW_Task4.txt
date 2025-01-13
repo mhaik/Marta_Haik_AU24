@@ -1,0 +1,50 @@
+Task 4. Prepare answers to the following questions
+How can one restrict access to certain columns of a database table?
+What is the difference between user identification and user authentication?
+What are the recommended authentication protocols for PostgreSQL?
+What is proxy authentication in PostgreSQL and what is it for? Why does it make the previously discussed role-based access control easier to implement?
+
+
+How can one restrict access to certain columns of a database table?
+
+
+By combination of schemas and views, for example:
+
+CREATE VIEW limited_actor AS 
+SELECT actor_id, first_name, last_name
+FROM actor;
+
+GRANT SELECT ON limited_actor TO some_user;
+
+
+
+
+What is the difference between user identification and user authentication?
+
+User identification happens when database server checks whether or not you are a registered user (for example, we need to provide a username while logging).
+
+Authentication is about checking special privileges for a user in the database.
+Like whether a user is authenticated to access the data or run some procedures.
+
+
+
+
+What are the recommended authentication protocols for PostgreSQL?
+
+The choice of authentication protocol depends on the specific use case. For local connections, peer authentication works well when operating system accounts are securely managed and mapped to database users. 
+
+When we need password authentication, scram-sha-256 is a good choice because of its enhanced security (strong password protection). 
+
+In enterprise setups, protocols like GSSAPI or LDAP integrate well with centralized systems (like Active Directory). For the highest level of security using SSL with client certificates provide both encrypted communication and user authentication.
+
+(based on the documentation https://www.postgresql.org/docs/9.1/auth-methods.html)
+
+
+
+
+
+What is proxy authentication in PostgreSQL, and what is it for? Why does it make role-based access control easier to implement?
+
+Proxy authentication allows one user/role to connect to the database on behalf of another. A service account can act as a versatile tool and perform various tasks, like those of a database administrator, an application user or a data analyst, depending on the specific requirements.
+
+Proxy authentication makes role-based access control easier because you don’t need to create a separate connection for every user. Instead, a single proxy role can handle multiple users while following the permissions and access rules defined in the database. This reduces the complexity of managing large numbers of users and makes sure that each user’s access is properly controlled without requiring direct connections.
