@@ -6,6 +6,7 @@ import sys
 from argparse import ArgumentParser, ArgumentTypeError, FileType
 from io import TextIOWrapper
 from typing import Dict, List
+import json
 
 DEFAULT_PATH_TO_STORE_INVERTED_INDEX = "inverted.index"
 
@@ -44,19 +45,33 @@ class InvertedIndex:
     """
 
     def __init__(self, words_ids: Dict[str, List[int]]):
-        pass
+        self.words_ids = words_ids  # Saving the word mapping when creating the class
 
     def query(self, words: List[str]) -> List[int]:
         """Return the list of relevant documents for the given query"""
-        pass
+        nested_list = [] # List to hold document IDs for each word
+        for word in words:
+            if word in self.words_ids:
+                nested_list.append(self.words_ids[word])
 
+        unique_elements = set() # Set to get unique document IDs
+        for sublist in nested_list:
+            for item in sublist:
+                unique_elements.add(item)
+
+        return list(unique_elements) # Conversion back into list
+    
+    
     def dump(self, filepath: str) -> None:
         """
         Allow us to write inverted indexes documents to temporary directory or local storage
         :param filepath: path to file with documents
         :return: None
         """
-        pass
+        # Opening the file, write the index as JSON
+        with open(filepath, "w", encoding="utf-8") as json_file:
+            json.dump(self.words_ids, json_file, ensure_ascii=False, indent=4)
+        
 
     @classmethod
     def load(cls, filepath: str):
@@ -65,7 +80,11 @@ class InvertedIndex:
         :param filepath: path to file with documents
         :return: InvertedIndex
         """
-        pass
+        # Opening the file, read the JSON data
+        with open(filepath, "r", encoding="utf-8") as json_file:
+            words_ids = json.load(json_file)
+
+        return cls(words_ids) # New InvertedIndex object with the loaded data
 
 
 def load_documents(filepath: str) -> Dict[int, str]:
@@ -74,7 +93,15 @@ def load_documents(filepath: str) -> Dict[int, str]:
     :param filepath: path to file with documents
     :return: Dict[int, str]
     """
-    pass
+    documents = {}  # Dictionary for storing documents
+
+    with open(filepath, 'r', encoding='utf-8') as text:
+        for line in text:
+            doc_id, content = line.lower().split("\t", 1) # Splitting each line into a document ID and its content
+            doc_id = int(doc_id)  # Converting ID to integer
+            documents[doc_id] = content.strip()  # Adding content to the dictionary
+
+    return documents
 
 
 def build_inverted_index(documents: Dict[int, str]) -> InvertedIndex:
@@ -83,7 +110,18 @@ def build_inverted_index(documents: Dict[int, str]) -> InvertedIndex:
     :param documents: dict with documents
     :return: InvertedIndex class
     """
-    pass
+    words_ids = {}  # Dictionary to store index
+
+    for doc_id, content in documents.items():
+        for word in content.split(' '):
+            if word not in words_ids:  # If the word is not in the index, add it
+                words_ids[word] = set()  # Set to avoid duplicate IDs
+            words_ids[word].add(doc_id)  # Adding the current document ID
+            
+    for word in words_ids:
+        words_ids[word] = list(words_ids[word]) # Sets into lists (JSON doesn't support sets)
+
+    return InvertedIndex(words_ids)
 
 
 def callback_build(arguments) -> None:
@@ -193,3 +231,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python final_task.py build --dataset wikipedia_sample --output inverted.index
+# python final_task.py query --index inverted.index --query a Greek
+# python final_task.py query --index inverted.index --query_from_file simple_queries.txt
